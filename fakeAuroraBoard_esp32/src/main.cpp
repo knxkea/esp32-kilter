@@ -179,6 +179,8 @@ private:
 #define DATA_TRANSFER_SERVICE_UUID "6E400001-B5A3-F393-E0A9-E50E24DCCA9E"
 #define DATA_TRANSFER_CHARACTERISTIC "6E400002-B5A3-F393-E0A9-E50E24DCCA9E"
 
+bool showLeds = false;
+
 class BLECharacteristicCallbacksOverride : public BLECharacteristicCallbacks
 {
 public:
@@ -199,14 +201,18 @@ public:
 				if (allReceived)
 				{
 					NeoPixel.clear();
-					NeoPixel.show();
+
 					for (const auto &hold : dd.getHolds())
 					{
 						Serial.println(hold.toString());
 						NeoPixel.setPixelColor(hold.getPosition(), NeoPixel.Color(hold.getRed(), hold.getGreen(), hold.getBlue())); // it only takes effect if pixels.show() is called
 					}
-					NeoPixel.show();
-					Serial.println();
+
+					// Avoid interacting with the leds in the callback.
+					//
+					// The callback doesn't seem to be on a very high priority and other tasks on this core
+					// may interrupt it.
+					showLeds = true;
 				}
 			}
 		}
@@ -240,6 +246,8 @@ void setup()
 
 	NeoPixel.begin(); // initialize NeoPixel strip object (REQUIRED)
 
+	pinMode( 23, OUTPUT );  // Pin 23 is used to signal logic analyzer during debugging.
+
 	char boardName[2 + sizeof(DISPLAY_NAME)];
 	snprintf(boardName, sizeof(boardName), "%s%s%d", DISPLAY_NAME, "@", API_LEVEL);
 	BLEDevice::init(boardName);
@@ -271,5 +279,20 @@ void loop()
 		delay(500); // Let the bluetooth hardware sort itself out
 		restartAdvertising = false;
 		bleServer->startAdvertising();
+	}
+
+	if (showLeds)
+	{
+		// The BLE callback has finished filling the NeoPixel buffer.
+		//
+		// We'll stream the commands out to the leds in the main loop
+		// as this runs on a dedicated(?) core and isn't interrupted
+		// by other system processes.
+
+		digitalWrite(23, HIGH);  // Signal on pin 23 for easier logic analyzer trigger.
+		NeoPixel.show();
+		digitalWrite(23, LOW);
+
+		showLeds = false;
 	}
 }
